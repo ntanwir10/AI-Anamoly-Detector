@@ -1,0 +1,111 @@
+version: '3.9'
+services:
+  redis-stack:
+    image: redis/redis-stack:latest
+    container_name: redis-stack
+    ports:
+      - "6379:6379"
+      - "8001:8001"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - app-network
+
+  service-b:
+    build: ./service-b
+    container_name: service-b
+    ports:
+      - "3000:3000"
+    depends_on:
+      redis-stack:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  data-collector:
+    build: ./data-collector
+    container_name: data-collector
+    ports:
+      - "4000:4000"
+    environment:
+      - REDIS_HOST=redis-stack
+      - REDIS_PORT=6379
+    depends_on:
+      redis-stack:
+        condition: service_healthy
+      service-b:
+        condition: service_started
+    networks:
+      - app-network
+
+  service-a:
+    build: ./service-a
+    container_name: service-a
+    depends_on:
+      - data-collector
+    networks:
+      - app-network
+    environment:
+      - DATA_COLLECTOR_URL=http://data-collector:4000
+      - ERROR_ONLY=0
+      - ERROR_PROB=0.3
+
+  aggregator:
+    build: ./aggregator
+    container_name: aggregator
+    environment:
+      - REDIS_HOST=redis-stack
+      - REDIS_PORT=6379
+      - INTERVAL_SECONDS=5
+    depends_on:
+      redis-stack:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  ai-service:
+    build: ./ai-service
+    container_name: ai-service
+    environment:
+      - REDIS_HOST=redis-stack
+      - REDIS_PORT=6379
+      - TRAINING_TARGET=10
+    depends_on:
+      redis-stack:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  dashboard-bff:
+    build: ./dashboard-bff
+    container_name: dashboard-bff
+    ports:
+      - "8080:8080"
+    environment:
+      - REDIS_HOST=redis-stack
+      - REDIS_PORT=6379
+      - WS_PORT=8080
+    depends_on:
+      redis-stack:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  dashboard-ui:
+    build: ./dashboard-ui
+    container_name: dashboard-ui
+    ports:
+      - "3001:3000"
+    depends_on:
+      - dashboard-bff
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
+
+

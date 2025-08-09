@@ -1,0 +1,17 @@
+{
+  "name": "dashboard-ui",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "serve -s build -l 3000",
+    "build": "react-scripts build"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-scripts": "5.0.1",
+    "serve": "14.2.3"
+  }
+}
+
+
