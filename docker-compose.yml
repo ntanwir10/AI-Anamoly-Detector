@@ -1,7 +1,6 @@
-version: '3.9'
 services:
   redis-stack:
-    image: redis/redis-stack:latest
+    image: redislabs/redismod:latest
     container_name: redis-stack
     ports:
       - "6379:6379"
@@ -13,6 +12,19 @@ services:
       retries: 20
     networks:
       - app-network
+
+  redis-gears:
+    build: ./redis-gears
+    container_name: redis-gears
+    environment:
+      - REDIS_HOST=redis-stack
+      - REDIS_PORT=6379
+    depends_on:
+      redis-stack:
+        condition: service_healthy
+    networks:
+      - app-network
+    restart: unless-stopped
 
   service-b:
     build: ./service-b
@@ -107,5 +119,3 @@ services:
 networks:
   app-network:
     driver: bridge
-
-

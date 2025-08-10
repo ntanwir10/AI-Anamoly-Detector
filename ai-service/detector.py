@@ -6,11 +6,11 @@ import numpy as np
 import redis
 from sklearn.ensemble import IsolationForest
 
-REDIS_HOST = os.getenv('REDIS_HOST', 'redis-stack')
-REDIS_PORT = int(os.getenv('REDIS_PORT', '6379'))
+REDIS_HOST = os.getenv("REDIS_HOST", "redis-stack")
+REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
 
-STREAM_KEY = 'system-fingerprints'
-PUBSUB_CHANNEL = 'alerts'
+STREAM_KEY = "system-fingerprints"
+PUBSUB_CHANNEL = "alerts"
 
 
 def read_stream_blocking(r: redis.Redis, last_id: str):
@@ -23,15 +23,27 @@ def read_stream_blocking(r: redis.Redis, last_id: str):
 
 
 def parse_vector(fields) -> List[float]:
-    raw = fields.get('data')
+    raw = fields.get("data")
     if not raw:
         return []
     try:
         raw = raw.strip()
-        if raw.startswith('[') and raw.endswith(']'):
+        if raw.startswith("[") and raw.endswith("]"):
             raw = raw[1:-1]
-        return [float(x) for x in raw.split(',') if x.strip()]
-    except Exception:
+        vec = [float(x) for x in raw.split(",") if x.strip()]
+        # Ensure consistent vector length (7 endpoints + 11 status codes = 18 features)
+        expected_length = 18
+        if len(vec) != expected_length:
+            print(
+                f"Warning: Vector length {len(vec)}, expected {expected_length}. Padding/truncating."
+            )
+            if len(vec) < expected_length:
+                vec.extend([0.0] * (expected_length - len(vec)))
+            else:
+                vec = vec[:expected_length]
+        return vec
+    except Exception as e:
+        print(f"Error parsing vector: {e}")
         return []
 
 
@@ -40,11 +52,11 @@ def main():
 
     # Training phase: collect ~60 fingerprints (~5 minutes at 5s interval)
     training_vectors: List[List[float]] = []
-    last_id = '$'
+    last_id = "$"
     start = time.time()
-    training_target = int(os.getenv('TRAINING_TARGET', '10'))
+    training_target = int(os.getenv("TRAINING_TARGET", "3"))
 
-    print('AI service: collecting training data...')
+    print("AI service: collecting training data...")
     while len(training_vectors) < training_target and time.time() - start < 600:
         last_id, fields = read_stream_blocking(r, last_id)
         if not fields:
@@ -52,16 +64,16 @@ def main():
         vec = parse_vector(fields)
         if vec:
             training_vectors.append(vec)
-            print(f'Collected {len(training_vectors)}/{training_target}')
+            print(f"Collected {len(training_vectors)}/{training_target}")
 
     if not training_vectors:
-        print('No training data collected; exiting.')
+        print("No training data collected; exiting.")
         return
 
     X_train = np.array(training_vectors)
-    model = IsolationForest(contamination='auto', random_state=42)
+    model = IsolationForest(contamination="auto", random_state=42)
     model.fit(X_train)
-    print('Model training complete; entering detection mode.')
+    print("Model training complete; entering detection mode.")
 
     # Detection loop
     while True:
@@ -74,12 +86,10 @@ def main():
         X_new = np.array([vec])
         pred = model.predict(X_new)  # 1 normal, -1 anomaly
         if pred[0] == -1:
-            msg = 'Anomaly detected: Outlier fingerprint observed.'
+            msg = "Anomaly detected: Outlier fingerprint observed."
             r.publish(PUBSUB_CHANNEL, msg)
             print(msg)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
-
-

@@ -1,0 +1,134 @@
+# Real Data Sources Configuration
+# Replace mock data with actual production data sources
+
+data_sources:
+  # Application Performance Monitoring (APM) Integration
+  apm:
+    enabled: true
+    providers:
+      - name: "datadog"
+        api_key: "${DATADOG_API_KEY}"
+        app_key: "${DATADOG_APP_KEY}"
+        metrics_endpoint: "https://api.datadoghq.com/api/v1/series"
+
+      - name: "newrelic"
+        api_key: "${NEWRELIC_API_KEY}"
+        metrics_endpoint: "https://api.newrelic.com/v2/applications"
+
+      - name: "appdynamics"
+        username: "${APPD_USERNAME}"
+        password: "${APPD_PASSWORD}"
+        controller_url: "${APPD_CONTROLLER_URL}"
+
+  # Infrastructure Monitoring
+  infrastructure:
+    enabled: true
+    providers:
+      - name: "prometheus"
+        endpoint: "${PROMETHEUS_ENDPOINT}"
+        metrics_path: "/api/v1/query"
+
+      - name: "grafana"
+        endpoint: "${GRAFANA_ENDPOINT}"
+        api_key: "${GRAFANA_API_KEY}"
+
+  # Log Aggregation
+  logs:
+    enabled: true
+    providers:
+      - name: "elasticsearch"
+        endpoint: "${ELASTICSEARCH_ENDPOINT}"
+        username: "${ELASTIC_USERNAME}"
+        password: "${ELASTIC_PASSWORD}"
+
+      - name: "splunk"
+        endpoint: "${SPLUNK_ENDPOINT}"
+        token: "${SPLUNK_TOKEN}"
+
+  # Business Intelligence
+  business_intelligence:
+    enabled: true
+    providers:
+      - name: "snowflake"
+        account: "${SNOWFLAKE_ACCOUNT}"
+        username: "${SNOWFLAKE_USERNAME}"
+        password: "${SNOWFLAKE_PASSWORD}"
+        warehouse: "${SNOWFLAKE_WAREHOUSE}"
+        database: "${SNOWFLAKE_DATABASE}"
+
+      - name: "bigquery"
+        project_id: "${GCP_PROJECT_ID}"
+        credentials_file: "${GOOGLE_APPLICATION_CREDENTIALS}"
+
+  # Custom API Endpoints
+  custom_apis:
+    enabled: true
+    endpoints:
+      - name: "user_service"
+        url: "${USER_SERVICE_URL}/metrics"
+        auth_type: "bearer"
+        auth_token: "${USER_SERVICE_TOKEN}"
+
+      - name: "payment_service"
+        url: "${PAYMENT_SERVICE_URL}/health"
+        auth_type: "api_key"
+        auth_header: "X-API-Key"
+        auth_value: "${PAYMENT_SERVICE_API_KEY}"
+
+# Data Collection Configuration
+collection:
+  # Real-time vs Batch collection
+  mode: "real_time" # Options: real_time, batch, hybrid
+
+  # Collection intervals
+  intervals:
+    apm: "30s" # Application metrics every 30 seconds
+    infrastructure: "1m" # Infrastructure metrics every minute
+    logs: "10s" # Log analysis every 10 seconds
+    business: "5m" # Business metrics every 5 minutes
+
+  # Data retention and aggregation
+  retention:
+    raw_data: "7d" # Keep raw data for 7 days
+    aggregated: "90d" # Keep aggregated data for 90 days
+
+  # Anomaly detection thresholds
+  thresholds:
+    response_time_p95: 500 # Alert if 95th percentile > 500ms
+    error_rate: 0.05 # Alert if error rate > 5%
+    cpu_usage: 0.85 # Alert if CPU usage > 85%
+    memory_usage: 0.90 # Alert if memory usage > 90%
+
+# Integration Examples
+examples:
+  # Datadog Integration
+  datadog:
+    - name: "Get API Response Times"
+      query: "avg:http.response_time{service:user-service}"
+      metric_name: "api_response_time"
+
+    - name: "Get Error Rates"
+      query: "sum:http.requests{service:user-service,status_code:5xx}"
+      metric_name: "error_rate"
+
+  # Prometheus Integration
+  prometheus:
+    - name: "Get Request Count"
+      query: "rate(http_requests_total[5m])"
+      metric_name: "request_rate"
+
+    - name: "Get Response Time"
+      query: "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))"
+      metric_name: "response_time_p95"
+
+  # Custom API Integration
+  custom:
+    - name: "User Registration Rate"
+      endpoint: "GET /api/users/stats/registrations"
+      metric_name: "user_registrations"
+      transform: "jsonpath:$.count"
+
+    - name: "Payment Success Rate"
+      endpoint: "GET /api/payments/success-rate"
+      metric_name: "payment_success_rate"
+      transform: "jsonpath:$.success_rate"

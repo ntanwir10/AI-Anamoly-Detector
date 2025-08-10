@@ -1,0 +1,386 @@
+# Kubernetes Deployment for AI Anomaly Detector
+# Apply with: kubectl apply -f kubernetes.yml
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ai-anomaly-detector
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: anomaly-detector-config
+  namespace: ai-anomaly-detector
+data:
+  REDIS_HOST: "redis-service"
+  REDIS_PORT: "6379"
+  INTERVAL_SECONDS: "5"
+  TRAINING_TARGET: "100"
+  WS_PORT: "8080"
+  LOG_LEVEL: "INFO"
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: anomaly-detector-secrets
+  namespace: ai-anomaly-detector
+type: Opaque
+data:
+  # Base64 encoded values
+  api-key: eW91ci1hcGkta2V5LWhlcmU= # your-api-key-here
+  webhook-url: aHR0cHM6Ly95b3VyLXdlYmhvb2suY29t # https://your-webhook.com
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-deployment
+  namespace: ai-anomaly-detector
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: redislabs/redismod:latest
+          ports:
+            - containerPort: 6379
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
+          livenessProbe:
+            exec:
+              command:
+                - redis-cli
+                - ping
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            exec:
+              command:
+                - redis-cli
+                - ping
+            initialDelaySeconds: 5
+            periodSeconds: 5
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-service
+  namespace: ai-anomaly-detector
+spec:
+  selector:
+    app: redis
+  ports:
+    - port: 6379
+      targetPort: 6379
+  type: ClusterIP
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: data-collector-deployment
+  namespace: ai-anomaly-detector
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: data-collector
+  template:
+    metadata:
+      labels:
+        app: data-collector
+    spec:
+      containers:
+        - name: data-collector
+          image: ai-anomaly-detector/data-collector:latest
+          ports:
+            - containerPort: 4000
+          envFrom:
+            - configMapRef:
+                name: anomaly-detector-config
+            - secretRef:
+                name: anomaly-detector-secrets
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 4000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 4000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: data-collector-service
+  namespace: ai-anomaly-detector
+spec:
+  selector:
+    app: data-collector
+  ports:
+    - port: 4000
+      targetPort: 4000
+  type: LoadBalancer
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aggregator-deployment
+  namespace: ai-anomaly-detector
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: aggregator
+  template:
+    metadata:
+      labels:
+        app: aggregator
+    spec:
+      containers:
+        - name: aggregator
+          image: ai-anomaly-detector/aggregator:latest
+          envFrom:
+            - configMapRef:
+                name: anomaly-detector-config
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-service-deployment
+  namespace: ai-anomaly-detector
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ai-service
+  template:
+    metadata:
+      labels:
+        app: ai-service
+    spec:
+      containers:
+        - name: ai-service
+          image: ai-anomaly-detector/ai-service:latest
+          envFrom:
+            - configMapRef:
+                name: anomaly-detector-config
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "500m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dashboard-bff-deployment
+  namespace: ai-anomaly-detector
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: dashboard-bff
+  template:
+    metadata:
+      labels:
+        app: dashboard-bff
+    spec:
+      containers:
+        - name: dashboard-bff
+          image: ai-anomaly-detector/dashboard-bff:latest
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: anomaly-detector-config
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dashboard-bff-service
+  namespace: ai-anomaly-detector
+spec:
+  selector:
+    app: dashboard-bff
+  ports:
+    - port: 8080
+      targetPort: 8080
+  type: ClusterIP
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dashboard-ui-deployment
+  namespace: ai-anomaly-detector
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: dashboard-ui
+  template:
+    metadata:
+      labels:
+        app: dashboard-ui
+    spec:
+      containers:
+        - name: dashboard-ui
+          image: ai-anomaly-detector/dashboard-ui:latest
+          ports:
+            - containerPort: 3000
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dashboard-ui-service
+  namespace: ai-anomaly-detector
+spec:
+  selector:
+    app: dashboard-ui
+  ports:
+    - port: 80
+      targetPort: 3000
+  type: LoadBalancer
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: anomaly-detector-ingress
+  namespace: ai-anomaly-detector
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  tls:
+    - hosts:
+        - anomaly-detector.yourdomain.com
+      secretName: anomaly-detector-tls
+  rules:
+    - host: anomaly-detector.yourdomain.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: dashboard-ui-service
+                port:
+                  number: 80
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: data-collector-service
+                port:
+                  number: 4000
+          - path: /ws
+            pathType: Prefix
+            backend:
+              service:
+                name: dashboard-bff-service
+                port:
+                  number: 8080
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: data-collector-hpa
+  namespace: ai-anomaly-detector
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: data-collector-deployment
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: data-collector-pdb
+  namespace: ai-anomaly-detector
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: data-collector
