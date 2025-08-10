@@ -2,7 +2,9 @@
 
 A **production-ready**, real-time anomaly detection system for distributed microservices architecture that leverages Redis's advanced probabilistic data structures (RedisBloom) for memory-efficient data collection and RedisGears for in-database processing. An AI model analyzes data patterns to identify and predict system failures before they cascade.
 
-**🏆 Built for the Redis "Beyond the Cache" AI Challenge** - This project showcases Redis as a high-performance, multi-model engine for complex data processing and analysis pipelines, demonstrating Redis capabilities far beyond traditional caching.
+**🏆 Built for the [Redis AI Challenge](https://dev.to/challenges/redis-2025-07-23?)** - This project showcases Redis as a high-performance, multi-model engine for complex data processing and analysis pipelines, demonstrating Redis capabilities far beyond traditional caching.
+
+> Competing in the **"Beyond the Cache"** challenge prompt, demonstrating how Redis can do much more than traditional caching by serving as a primary database, full-text search engine, real-time streams processor, and pub/sub messaging system.
 
 This system is designed for **real-world deployment** and includes comprehensive integration options, client SDKs, and enterprise-grade features for monitoring distributed systems at scale.
 
