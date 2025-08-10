@@ -28,23 +28,82 @@ const server = app.listen(wsPort, () => {
 // WebSocket server
 const wss = new WebSocketServer({ server });
 
+// Log WebSocket connections
+wss.on("connection", (ws) => {
+  console.log(`WebSocket client connected. Total clients: ${wss.clients.size}`);
+
+  ws.on("close", () => {
+    console.log(
+      `WebSocket client disconnected. Total clients: ${wss.clients.size}`
+    );
+  });
+
+  ws.on("error", (error) => {
+    console.error("WebSocket error:", error);
+  });
+});
+
 // Redis subscriber
 const redisHost = process.env.REDIS_HOST || "redis-stack";
 const redisPort = parseInt(process.env.REDIS_PORT || "6379", 10);
 const sub = createClient({ url: `redis://${redisHost}:${redisPort}` });
-await sub.connect();
-await sub.subscribe("alerts", (message) => {
-  const payload = JSON.stringify({ message, ts: Date.now() });
-  wss.clients.forEach((client) => {
-    try {
-      client.send(payload);
-    } catch (_) {}
-  });
-});
-
-// Redis client for reading data
 const redisClient = createClient({ url: `redis://${redisHost}:${redisPort}` });
-await redisClient.connect();
+
+// Store recent anomalies in memory
+const recentAnomalies = [];
+
+// Initialize Redis connections
+async function initializeRedis() {
+  try {
+    await sub.connect();
+    console.log("Redis subscriber connected and listening on alerts channel");
+
+    await redisClient.connect();
+    console.log("Redis client connected for data reading");
+
+    // Subscribe to anomaly alerts
+    await sub.subscribe("alerts", (message) => {
+      console.log("Received alert:", message);
+
+      const anomaly = {
+        id: Date.now(),
+        message: message,
+        timestamp: new Date().toISOString(),
+        severity: "high",
+      };
+      recentAnomalies.push(anomaly);
+
+      // Keep only last 100 anomalies
+      if (recentAnomalies.length > 100) {
+        recentAnomalies.shift();
+      }
+
+      // Broadcast to all WebSocket clients
+      const payload = JSON.stringify({ message, ts: new Date().toISOString() });
+      console.log(
+        `Broadcasting to ${wss.clients.size} WebSocket clients:`,
+        payload
+      );
+      wss.clients.forEach((client) => {
+        try {
+          client.send(payload);
+        } catch (error) {
+          console.error("Failed to send WebSocket message:", error);
+        }
+      });
+    });
+
+    console.log("Successfully subscribed to alerts channel");
+  } catch (error) {
+    console.error("Failed to initialize Redis:", error);
+  }
+}
+
+// Initialize Redis connections
+initializeRedis().catch((error) => {
+  console.error("Failed to initialize Redis:", error);
+  process.exit(1);
+});
 
 app.get("/health", async (_req, res) => {
   try {
@@ -53,7 +112,7 @@ app.get("/health", async (_req, res) => {
       status: "healthy",
       redis: "connected",
       uptime: process.uptime(),
-      timestamp: Date.now(),
+      timestamp: new Date().toISOString(),
       anomalies_count: recentAnomalies.length,
     });
   } catch (error) {
@@ -61,7 +120,7 @@ app.get("/health", async (_req, res) => {
       status: "unhealthy",
       redis: "disconnected",
       error: error.message,
-      timestamp: Date.now(),
+      timestamp: new Date().toISOString(),
     });
   }
 });
@@ -241,30 +300,6 @@ app.get("/api/fingerprints", async (req, res) => {
     console.error("Error fetching fingerprints:", error);
     res.status(500).json({ error: "Failed to fetch fingerprints" });
   }
-});
-
-// Store recent anomalies in memory
-const recentAnomalies = [];
-
-// Subscribe to anomaly alerts
-await sub.subscribe("alerts", (message) => {
-  const anomaly = {
-    id: Date.now(),
-    message: message,
-    timestamp: new Date().toISOString(),
-    severity: "high",
-  };
-  recentAnomalies.push(anomaly);
-  // Keep only last 100 anomalies
-  if (recentAnomalies.length > 100) {
-    recentAnomalies.shift();
-  }
-  const payload = JSON.stringify({ message, ts: Date.now() });
-  wss.clients.forEach((client) => {
-    try {
-      client.send(payload);
-    } catch (_) {}
-  });
 });
 
 // API endpoint for anomalies (expected by frontend)

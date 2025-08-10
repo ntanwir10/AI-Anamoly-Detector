@@ -42,7 +42,21 @@ function formatTimestamp(timestamp) {
   if (!timestamp) return "Unknown";
 
   try {
-    const date = new Date(timestamp);
+    // Ensure we have a valid date object
+    let date;
+    if (timestamp instanceof Date) {
+      date = timestamp;
+    } else if (typeof timestamp === "string" || typeof timestamp === "number") {
+      date = new Date(timestamp);
+    } else {
+      return "Invalid timestamp";
+    }
+
+    // Check if the date is valid
+    if (isNaN(date.getTime())) {
+      return "Invalid timestamp";
+    }
+
     // Format as: "14:30:25 (2 sec ago)"
     const timeString = date.toLocaleTimeString("en-US", {
       hour12: false,
@@ -65,8 +79,8 @@ function formatTimestamp(timestamp) {
 
     return `${timeString} (${relativeTime})`;
   } catch (error) {
-    // Fallback for old format or invalid timestamps
-    return timestamp.toString();
+    console.error("Error formatting timestamp:", error, timestamp);
+    return "Invalid timestamp";
   }
 }
 
@@ -426,9 +440,7 @@ function RedisBloomViewer() {
                 ))
               : // Test data to demonstrate scrolling when no real data
                 Array.from({ length: 15 }, (_, index) => ({
-                  timestamp: new Date(
-                    Date.now() - index * 60000
-                  ).toLocaleTimeString(),
+                  timestamp: new Date(Date.now() - index * 60000).toISOString(),
                   data: `${Math.random()
                     .toString(36)
                     .substring(2, 15)}${Math.random()
@@ -504,6 +516,38 @@ function App() {
     activeConnections: 1,
   });
 
+  // Fetch existing anomalies on component mount
+  useEffect(() => {
+    const fetchExistingAnomalies = async () => {
+      try {
+        const response = await fetch("http://localhost:8080/api/anomalies");
+        if (response.ok) {
+          const anomalies = await response.json();
+          // Convert API anomalies to the format expected by the UI
+          const formattedAnomalies = anomalies.map((anomaly) => ({
+            id: anomaly.id,
+            timestamp: anomaly.timestamp,
+            message: anomaly.message,
+            severity: anomaly.severity,
+          }));
+          setLogs(formattedAnomalies);
+          setSystemStats((prev) => ({
+            ...prev,
+            totalAlerts: anomalies.length,
+          }));
+          // Set status to ANOMALOUS if there are existing anomalies
+          if (anomalies.length > 0) {
+            setStatus("ANOMALOUS");
+          }
+        }
+      } catch (error) {
+        console.error("Failed to fetch existing anomalies:", error);
+      }
+    };
+
+    fetchExistingAnomalies();
+  }, []);
+
   useEffect(() => {
     const ws = new WebSocket(`ws://${window.location.hostname}:8080`);
 
@@ -514,8 +558,24 @@ function App() {
     ws.onmessage = (event) => {
       const msg = JSON.parse(event.data);
       setStatus("ANOMALOUS");
+
+      // Ensure we have a valid timestamp - prioritize ts field from WebSocket
+      let timestamp;
+      if (msg.ts) {
+        timestamp = msg.ts; // Use the ts field directly as it's already ISO string
+      } else if (msg.timestamp) {
+        timestamp = msg.timestamp;
+      } else {
+        timestamp = new Date().toISOString();
+      }
+
       setLogs((prev) => [
-        { ...msg, timestamp: new Date().toLocaleTimeString(), id: Date.now() },
+        {
+          ...msg,
+          timestamp: timestamp,
+          id: Date.now(),
+          message: msg.message || msg.data || msg.anomaly || "Anomaly detected",
+        },
         ...prev,
       ]);
       setSystemStats((prev) => ({
@@ -657,7 +717,11 @@ function App() {
                         {formatTimestamp(log.timestamp)}
                       </AlertTitle>
                       <AlertDescription className="text-xs">
-                        {log.message || log}
+                        {log.message ||
+                          log.data ||
+                          (typeof log === "string"
+                            ? log
+                            : JSON.stringify(log).substring(0, 100))}
                       </AlertDescription>
                     </Alert>
                   ))}
